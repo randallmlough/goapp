@@ -1,0 +1,106 @@
+{{ reserveImport "context"}}
+{{ reserveImport "github.com/99designs/gqlgen/graphql"}}
+{{ reserveImport "github.com/99designs/gqlgen/graphql/handler"}}
+{{ reserveImport "github.com/99designs/gqlgen/graphql/handler/extension"}}
+{{ reserveImport "github.com/99designs/gqlgen/graphql/playground"}}
+{{ reserveImport "github.com/go-chi/chi"}}
+{{ reserveImport ($.Import "graph/generated")}}
+{{ reserveImport "github.com/vektah/gqlparser/v2/gqlerror"}}
+{{ reserveImport "net/http"}}
+
+type Server struct {
+	Graph  *Graph
+	Config *Config
+}
+
+type Config struct {
+	ErrorHandler         func(ctx context.Context, err error) *gqlerror.Error
+	Dataloaders          []func(next http.Handler) http.Handler
+	FixedComplexityLimit int
+}
+
+var (
+	DefaultConfig = Config{
+		FixedComplexityLimit: 300,
+	}
+)
+
+func NewServer(graph *Graph, options ...ServerOption) *Server {
+	srv := &Server{
+		Graph:  graph,
+		Config: &DefaultConfig,
+	}
+
+	for _, option := range options {
+		option.apply(srv)
+	}
+	return srv
+}
+
+// An Option configures a Logger.
+type ServerOption interface {
+	apply(*Server)
+}
+
+// optionFunc wraps a func so it satisfies the Option interface.
+type optionFunc func(*Server)
+
+func (f optionFunc) apply(s *Server) {
+	f(s)
+}
+
+func WithErrorHandler(errorHandler func(ctx context.Context, e error) *gqlerror.Error) ServerOption {
+	return optionFunc(func(s *Server) {
+		s.Config.ErrorHandler = errorHandler
+	})
+}
+
+func WithDataloaders(dataloaders ...func(http.Handler) http.Handler) ServerOption {
+	return optionFunc(func(s *Server) {
+		s.Config.Dataloaders = dataloaders
+	})
+}
+
+func (s *Server) Server(schema graphql.ExecutableSchema) *handler.Server {
+	return handler.NewDefaultServer(schema)
+}
+
+func (s *Server) Schema(cfg generated.Config) graphql.ExecutableSchema {
+	return generated.NewExecutableSchema(cfg)
+}
+
+func (s *Server) Handler() http.Handler {
+	r := chi.NewRouter()
+	r.Use(HttpWrapper)
+	if s.Config != nil {
+		if s.Config.Dataloaders != nil {
+			r.Use(s.Config.Dataloaders...)
+		}
+	}
+
+	r.Handle("/", s.handler(s.Graph.Config()))
+	return r
+}
+
+func (s *Server) handler(cfg generated.Config) http.Handler {
+	schema := s.Schema(cfg)
+	srv := s.Server(schema)
+	srv.AroundFields(func(ctx context.Context, next graphql.Resolver) (res interface{}, err error) {
+		errors := graphql.GetErrors(ctx)
+		if errors != nil {
+			return nil, nil
+		}
+		return next(ctx)
+	})
+	if s.Config != nil {
+		srv.Use(extension.FixedComplexityLimit(s.Config.FixedComplexityLimit))
+
+		if s.Config.ErrorHandler != nil {
+			srv.SetErrorPresenter(s.Config.ErrorHandler)
+		}
+	}
+	return srv
+}
+func (s *Server) PlaygroundHandler(graphqlRoute, playgroundTitle string) http.HandlerFunc {
+	return playground.Handler(playgroundTitle, graphqlRoute)
+}

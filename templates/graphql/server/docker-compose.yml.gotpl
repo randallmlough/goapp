@@ -1,0 +1,36 @@
+version: "3"
+
+services:
+    server:
+        image: {{ $.ProjectName }}_server:latest
+        container_name: {{ $.ProjectName }}_server
+        environment:
+        - DB_URI=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password}@postgres:${DB_PORT:-5432}/${DB_NAME:-postgres}
+        ports:
+        - ${PORT:-8080}:8080
+        volumes:
+        - .:/app
+        depends_on:
+        - postgres
+        networks:
+        - app-network
+    postgres:
+        image: postgres:latest
+        container_name: {{ $.ProjectName }}_db
+        environment:
+        - POSTGRES_USER=${DB_USER:-postgres}
+        - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
+        - POSTGRES_DB=${DB_NAME:-postgres}
+        - POSTGRES_PORT=${DB_PORT:-5432}
+        volumes:
+        - {{ $.ProjectName }}-data:/var/lib/postgresql/data
+        ports:
+        - ${DB_PORT:-5432}:5432
+        networks:
+        - app-network
+
+volumes:
+    {{ $.ProjectName }}-data:
+networks:
+    app-network:
+        driver: bridge

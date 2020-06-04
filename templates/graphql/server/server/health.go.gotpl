@@ -1,0 +1,5 @@
+{{ reserveImport "net/http"}}
+
+func Ping(w http.ResponseWriter, r *http.Request) {
+	Render(w, r, 200)
+}

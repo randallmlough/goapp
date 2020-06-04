@@ -1,0 +1,91 @@
+{{ reserveImport "fmt"}}
+{{ reserveImport "gopkg.in/yaml.v2"}}
+{{ reserveImport "io/ioutil"}}
+{{ reserveImport "os"}}
+{{ reserveImport "path/filepath"}}
+{{ reserveImport "strings"}}
+
+
+// LoadConfigFromDefaultLocations looks for a config file in the current directory, and all parent directories
+// walking up the tree. The closest config file will be returned.
+func LoadConfigFromDefaultLocations() (*Config, error) {
+	cfgFile, err := findCfg()
+	if err != nil {
+		return nil, err
+	}
+
+	err = os.Chdir(filepath.Dir(cfgFile))
+	if err != nil {
+		return nil, fmt.Errorf("unable to enter config dir %w", err)
+	}
+	return LoadConfig(cfgFile)
+}
+
+// LoadConfig reads the gqlgen.yml config file
+func LoadConfig(filename string) (*Config, error) {
+	config := DefaultConfig()
+
+	b, err := readFileEnvParsing(filename)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read config %w", err)
+	}
+
+	if err := yaml.UnmarshalStrict(b, config); err != nil {
+		return nil, fmt.Errorf("unable to parse config %w", err)
+	}
+
+	return config, nil
+}
+
+// findCfg searches for the config file in this directory and all parents up the tree
+// looking for the closest match
+func findCfg() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("unable to get working dir to findCfg %w", err)
+	}
+
+	cfg := findCfgInDir(dir)
+
+	for cfg == "" && dir != filepath.Dir(dir) {
+		dir = filepath.Dir(dir)
+		cfg = findCfgInDir(dir)
+	}
+
+	if cfg == "" {
+		return "", os.ErrNotExist
+	}
+
+	return cfg, nil
+}
+
+var cfgFilenames = []string{".config.yml", "config.yml", "config.yaml"}
+
+func findCfgInDir(dir string) string {
+	for _, cfgName := range cfgFilenames {
+		path := filepath.Join(dir, cfgName)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
+func readFileEnvParsing(path string) ([]byte, error) {
+	confContent, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	// expand environment variables
+	return []byte(os.Expand(string(confContent), ParseEnv)), nil
+}
+
+func ParseEnv(key string) string {
+	parts := strings.Split(key, ":-")
+	if env, ok := os.LookupEnv(parts[0]); ok {
+		return env
+	} else if len(parts) > 1 {
+		return parts[1]
+	}
+	return ""
+}

@@ -1,0 +1,36 @@
+{{ reserveImport "bytes"}}
+{{ reserveImport "context"}}
+{{ reserveImport ($.Import "errors")}}
+{{ reserveImport "io/ioutil"}}
+{{ reserveImport "net/http"}}
+
+type contextKey struct {
+	name string
+}
+
+type httpWrapper struct {
+	W *http.ResponseWriter
+	R *http.Request
+}
+
+const httpWrapperKey = "httpWrapper"
+
+var httpWrapperCtxKey = &contextKey{httpWrapperKey}
+
+func HttpWrapper(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wrap := &httpWrapper{
+			W: &w,
+			R: r,
+		}
+		ctx := context.WithValue(r.Context(), httpWrapperCtxKey, wrap)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+func getHttpWrapper(ctx context.Context) *httpWrapper {
+	if wrap, ok := ctx.Value(httpWrapperCtxKey).(*httpWrapper); ok {
+		return wrap
+	}
+	return nil
+}
+

@@ -1,0 +1,132 @@
+{{ reserveImport "context"}}
+{{ reserveImport ($.Import "app")}}
+{{ reserveImport ($.Import "app/user")}}
+{{ reserveImport ($.Import "errors")}}
+{{ reserveImport ($.Import "secure")}}
+{{ reserveImport "net/http"}}
+{{ reserveImport "strings"}}
+{{ reserveImport "time"}}
+
+var AuthCookieName = "session"
+var userCtxKey = &contextKey{"user"}
+
+type contextKey struct {
+	name string
+}
+
+type userDB interface {
+	Get(ctx context.Context, userID app.ID) (*app.User, error)
+}
+
+// Auth decodes the share session cookie or jwt and packs the session into context
+func Auth(db userDB, auth secure.JWTService) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			token, pat, err := extractKeyFromRequest(r)
+			// Allow unauthenticated users in
+			if err != nil || token == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			var userID app.ID
+			// is jwt
+			if !pat {
+				jwt, err := auth.ValidateToken(token)
+				if err != nil {
+					http.Error(w, "Invalid token", http.StatusForbidden)
+					return
+				}
+				if tmp, ok := jwt.Claims["sub"]; !ok {
+					http.Error(w, "Invalid token", http.StatusForbidden)
+					return
+				} else {
+					id, ok := tmp.(float64)
+					if !ok {
+						http.Error(w, "Invalid token", http.StatusForbidden)
+						return
+					}
+					userID = app.ID(id)
+				}
+			}
+			u, err := db.Get(ctx, userID)
+			if err != nil {
+				if errors.Is(err, user.ErrUserNotFound) {
+					next.ServeHTTP(w, r)
+					return
+				}
+				http.Error(w, "Invalid token", http.StatusForbidden)
+				return
+			}
+			// put it in context
+			ctx = app.UserToContext(ctx, u)
+			// and call the next with our new context
+			r = r.WithContext(ctx)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func IsAuthenticated(ctx context.Context) bool {
+	if u := app.UserFromContext(ctx); u == nil || u.ID <= 0 {
+		return false
+	}
+	return true
+}
+
+func extractKeyFromRequest(r *http.Request) (key string, pat bool, err error) {
+	// check for cookie
+	ck, er := r.Cookie(AuthCookieName)
+	if er != nil {
+		// If it's ErrNoCookie we must continue
+		// otherwise this is a legit error
+		if er != http.ErrNoCookie {
+
+			err = er
+			return
+		}
+	} else {
+		ac := new(app.AuthCookie)
+		readErr := secure.ReadSecureCookie(ck.Name, ck.Value, ac)
+		if readErr != nil {
+			err = readErr
+			return
+		}
+		if t, timeErr := time.Parse(time.RFC3339, ac.ExpiresAt); timeErr != nil {
+			err = timeErr
+			return
+		} else {
+			// if t is before time.Now() then the token has expired
+			if t.Before(time.Now()) {
+				return "", false, errors.New("token expired")
+			}
+		}
+		pat, err = isPAT(ac.Token)
+		key = ac.Token
+		return
+	}
+	// check if we are supplying basic auth
+	authorization := r.Header.Get("Authorization")
+	if len(authorization) > 0 {
+		parts := strings.SplitN(authorization, " ", 2)
+		if !(len(parts) == 2 && parts[0] == "Bearer") {
+			err = errors.New("invalid basic authentication format")
+			return
+		}
+		// check to see if it's a PAT or JWT
+		pat, err = isPAT(parts[1])
+		key = parts[1]
+		return
+	}
+	return
+}
+
+func isPAT(token string) (bool, error) {
+	tokenParts := strings.Split(token, ".")
+	if len(tokenParts) == 3 {
+		return false, nil
+	} else if len(tokenParts) != 1 {
+		return false, errors.New("unrecognized token format")
+	}
+	return true, nil
+}

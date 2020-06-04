@@ -1,0 +1,33 @@
+# Refer to https://gqlgen.com/config/
+# for detailed .gqlgen.yml documentation.
+
+schema:
+  - "graph/schema/schema.graphql"
+
+exec:
+  filename: graph/generated/generated.go
+  package: generated
+
+resolver:
+  layout: follow-schema
+  dir: graph/resolver
+  package: resolver
+
+
+struct_tag: gql
+omit_slice_element_pointers: true
+
+autobind:
+  - github.com/randallmlough/yaaaas/app
+
+models:
+  Invoice:
+    fields:
+      items:
+        resolver: true
+  ID:
+    model:
+      - github.com/randallmlough/yaaaas/app.ID
+      - github.com/99designs/gqlgen/graphql.Int
+      - github.com/99designs/gqlgen/graphql.Int64
+      - github.com/99designs/gqlgen/graphql.Int32

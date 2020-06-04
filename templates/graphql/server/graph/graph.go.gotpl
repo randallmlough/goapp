@@ -1,0 +1,54 @@
+{{ reserveImport ($.Import "errors")}}
+{{ reserveImport ($.Import "graph/generated")}}
+
+type Graph struct {
+	Resolvers  generated.ResolverRoot
+	Directives generated.DirectiveRoot
+	Complexity generated.ComplexityRoot
+}
+
+// defaults
+var (
+	DefaultComplexity = generated.ComplexityRoot{}
+)
+
+var ResolverRequired = errors.New("Resolvers required to create graphql")
+
+func New(resolvers generated.ResolverRoot, opts ...Option) (*Graph, error) {
+	if resolvers == nil {
+		return nil, ResolverRequired
+	}
+	gql := &Graph{
+		Resolvers:  resolvers,
+		Complexity: DefaultComplexity,
+	}
+	for _, fn := range opts {
+		fn(gql)
+	}
+	return gql, nil
+}
+
+type Option func(g *Graph)
+
+func WithDirectives(directives generated.DirectiveRoot) Option {
+	return func(g *Graph) {
+		g.Directives = directives
+	}
+}
+
+func WithComplexity(complexity generated.ComplexityRoot) Option {
+	return func(g *Graph) {
+		g.Complexity = complexity
+	}
+}
+func (g *Graph) Config() generated.Config {
+	return generated.Config{
+		Resolvers:  g.Resolvers,
+		Directives: g.Directives,
+		Complexity: g.Complexity,
+	}
+}
+
+func (g *Graph) Server(options ...ServerOption) *Server {
+	return NewServer(g, options...)
+}

@@ -1,0 +1,136 @@
+{{ reserveImport "context"}}
+{{ reserveImport "github.com/99designs/gqlgen/graphql"}}
+{{ reserveImport ($.Import "errors")}}
+{{ reserveImport ($.Import "log")}}
+{{ reserveImport "github.com/vektah/gqlparser/v2/ast"}}
+{{ reserveImport "github.com/vektah/gqlparser/v2/gqlerror"}}
+{{ reserveImport "net/http"}}
+{{ reserveImport "time"}}
+
+type Error struct {
+	Err        error  `json:"-"`
+	StatusCode int    `json:"-"`
+	FieldErr   string `json:"-"`
+	Index      *int
+	Msg        string
+}
+
+func (e *Error) Error() string {
+	return e.Err.Error()
+}
+
+func (e *Error) Public() string {
+	return e.Msg
+}
+
+func (e *Error) Status() int {
+	return e.StatusCode
+}
+func (e *Error) Field() string {
+	return e.FieldErr
+}
+func (e *Error) Extensions() map[string]interface{} {
+	ext := map[string]interface{}{
+		"timestamp": time.Now(),
+	}
+	if e.StatusCode > 0 {
+		ext["status"] = e.StatusCode
+	}
+	if e.FieldErr != "" {
+		ext["field"] = e.FieldErr
+		ext["message"] = e.Public()
+	}
+	return ext
+}
+
+type public interface {
+	Public() string
+}
+type status interface {
+	Status() int
+}
+type field interface {
+	Field() string
+}
+
+func IsPublicError(err error) bool {
+	err = errors.Cause(err)
+	if _, ok := err.(public); ok {
+		return true
+	}
+
+	return false
+}
+
+func AddError(ctx context.Context, err error) {
+	graphql.AddError(ctx, err)
+}
+
+func AppendFieldIndex(ctx context.Context, index int) context.Context {
+	return context.WithValue(ctx, "field_index", index)
+}
+func FieldIndex(ctx context.Context) int {
+	if tmp := ctx.Value("field_index"); tmp != nil {
+		if v, ok := tmp.(int); ok {
+			return v
+		}
+	}
+	return -1
+}
+
+func getFieldIndex(ctx context.Context, err error) int {
+	if e, ok := err.(*Error); ok {
+		if e.Index != nil && *e.Index >= 0 {
+			return *e.Index
+		}
+	}
+	if idx := FieldIndex(ctx); idx >= 0 {
+		return idx
+	}
+	return -1
+}
+
+func ErrorHandler(logger *log.Logger) func(ctx context.Context, e error) *gqlerror.Error {
+	return func(ctx context.Context, err error) *gqlerror.Error {
+		if ge, ok := err.(*gqlerror.Error); ok {
+			return ge
+		}
+		fieldCtx := graphql.GetFieldContext(ctx)
+		err = errors.Cause(err)
+		if el, ok := err.(errors.Loggable); ok {
+			el.Log(logger)
+		} else {
+			logger.Error("error occurred", log.Error(err))
+		}
+
+		if ae, ok := err.(public); ok {
+			gqlErr := &gqlerror.Error{
+				Message: ae.Public(),
+			}
+			path := fieldCtx.Path()
+			if idx := getFieldIndex(ctx, err); idx >= 0 {
+				path = append(path, ast.PathIndex(idx))
+			}
+
+			ext := map[string]interface{}{
+				"timestamp": time.Now(),
+			}
+			if s, ok := err.(status); ok {
+				ext["status"] = s.Status()
+			}
+			if f, ok := err.(field); ok {
+				ext["field"] = f.Field()
+			}
+			gqlErr.Extensions = ext
+			gqlErr.Path = path
+			return gqlErr
+		}
+		return &gqlerror.Error{
+			Message: "Something went wrong",
+			Path:    fieldCtx.Path(),
+			Extensions: map[string]interface{}{
+				"status": http.StatusInternalServerError,
+			},
+		}
+	}
+}

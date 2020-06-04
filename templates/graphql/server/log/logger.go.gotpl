@@ -1,0 +1,71 @@
+{{ reserveImport "go.uber.org/zap"}}
+{{ reserveImport "go.uber.org/zap/zapcore"}}
+{{ reserveImport "log"}}
+{{ reserveImport "time"}}
+
+type Logger struct {
+	*zap.Logger
+}
+
+func New(env string, enableColor bool, stackTraceLevel string) (*Logger, error) {
+	var config zap.Config
+	if env == "production" {
+		config = zap.NewProductionConfig()
+	} else {
+		config = zap.NewDevelopmentConfig()
+	}
+	if enableColor {
+		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	}
+	logger, err := config.Build(zap.AddCallerSkip(1),
+		stackTrackLevel(stackTraceLevel),
+	)
+	return &Logger{logger}, err
+}
+
+func stackTrackLevel(level string) zap.Option {
+	switch level {
+	case "fatal":
+		return zap.AddStacktrace(zapcore.FatalLevel)
+	default:
+		return zap.AddStacktrace(zapcore.ErrorLevel)
+	}
+}
+
+func (l *Logger) StdLogger() *log.Logger {
+	return zap.NewStdLog(l.Logger)
+}
+
+func (l *Logger) AddCallerSkip(skipAmt int) *Logger {
+	return &Logger{l.WithOptions(zap.AddCallerSkip(skipAmt))}
+}
+
+type Field = zap.Field
+
+func Error(err error) Field {
+	return zap.Error(err)
+}
+
+func String(key, value string) Field {
+	return zap.String(key, value)
+}
+
+func Int(key string, value int) Field {
+	return zap.Int(key, value)
+}
+
+func Time(key string, value time.Time) Field {
+	return zap.Time(key, value)
+}
+
+func Duration(key string, value time.Duration) Field {
+	return zap.Duration(key, value)
+}
+
+func Map(key string, value map[string]interface{}) Field {
+	return zap.Reflect(key, value)
+}
+
+func Any(key string, value interface{}) Field {
+	return zap.Any(key, value)
+}

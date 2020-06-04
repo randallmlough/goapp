@@ -1,0 +1,140 @@
+name: GraphQL
+description: Fullstack GraphQL starter kit
+version: 0.0.1
+packages:
+  server:
+    output_dir: server
+    template_dir: server
+    go_mod: true
+    deps:
+      - github.com/99designs/gqlgen
+      - github.com/dgrijalva/jwt-go
+      - github.com/fatih/color
+      - github.com/go-chi/chi
+      - github.com/gorilla/securecookie
+      - github.com/jackc/pgx/v4
+      - github.com/pkg/errors
+      - github.com/rubenv/sql-migrate
+      - go.uber.org/zap
+      - golang.org/x/crypto
+      - gopkg.in/yaml.v2
+    modules:
+  #    - name: # print friendly name
+  #      required: # true / false - is this included in every build? requireds to false
+  #      components:
+  #       - name: # print friendly name
+  #         type: # dir, code, document
+  #         output_path: # where it goes to
+  #         template_path: # where you can find it
+      docker:
+        required: true
+        components:
+        - name: docker compose
+          type: doc
+          output_path: docker-compose.yml
+          template_path: docker-compose.yml.gotpl
+      server:
+        required: true
+        components:
+        - name: file server
+          type: code
+          output_path: server/file_server.go
+          template_path: server/file_server.go.gotpl
+        - name: server
+          type: code
+          output_path: server/server.go
+          template_path: server/server.go.gotpl
+        - name: health
+          type: code
+          output_path: server/health.go
+          template_path: server/health.go.gotpl
+      config:
+        required: true
+        components:
+        - name: config
+          type: dir
+          output_path: config
+          template_path: config
+      logging:
+        required: true
+        components:
+        - name: logging
+          type: dir
+          output_path: log
+          template_path: log
+      errors:
+        required: true
+        components:
+        - name: errors
+          type: dir
+          output_path: errors
+          template_path: errors
+      middleware:
+        required: true
+        components:
+        - name: middleware headers
+          type: code
+          output_path: middleware/headers.go
+          template_path: middleware/headers.go.gotpl
+        - name: required middleware
+          type: code
+          output_path: middleware/middleware.go
+          template_path: middleware/middleware.go.gotpl
+      executable:
+        required: true
+        components:
+        - name: main
+          type: code
+          output_path: cmd/server/main.go
+          template_path: exe/server.go.gotpl
+      postgres:
+        required: false
+        default: true
+        components:
+        - name: postgres
+          type: dir
+          output_path: db
+          template_path: db
+      graphql:
+        required: false
+        default: true
+        components:
+        - name: graphql
+          type: dir
+          output_path: graph
+          template_path: graph
+      jwt:
+        required: false
+        default: true
+        components:
+        - name: jwt service
+          type: code
+          output_path: secure/jwt.go
+          template_path: secure/jwt.go.gotpl
+      cookies:
+        required: false
+        default: true
+        components:
+          - name: secure cookies
+            type: code
+            output_path: secure/cookies.go
+            template_path: secure/cookie.go.gotpl
+      authentication:
+        required: false
+        default: true
+        components:
+          - name: password service
+            type: code
+            output_path: secure/password.go
+            template_path: secure/password.go.gotpl
+          - name: authentication middleware
+            type: code
+            output_path: middleware/auth.go
+            template_path: middleware/auth.go.gotpl
+      migrations:
+        required: false
+        components:
+          - name: db migration service
+            type: code
+            output_path: migrations/migrate.go
+            template_path: migrations/migrate.go.gotpl

@@ -1,0 +1,68 @@
+name: {{ $.ProjectName }}
+server_dir: server
+client_dir: client
+env: ${ENV:-development}
+domain:
+
+logger:
+    enable: true
+    version: development # development | production
+    enable_color: true
+    stack_trace_level: fatal
+
+database:
+    dialect: postgres
+    port: ${DB_PORT}
+    host: ${DB_HOST}
+    user: ${DB_USER}
+    password: ${DB_NAME}
+    uri: ${DB_URI}
+    ssl_mode: ${DB_SSLMODE:-disable}
+    log_queries: true
+    timeout_seconds: 5
+
+migrate:
+    enable: true
+    dir: migration
+    db: ${DB_URI}
+
+server:
+    port: ${PORT:-:8000}
+    read_timeout_seconds: 5
+    write_timeout_seconds: 10
+    idle_timeout: 10
+
+jwt:
+    signing_algorithm: HS256
+
+api:
+    path: /api
+    version: /v1
+
+{{- if (($.Template.Package "server").HasModule "graphql" )}}
+graphql:
+    path: /graphql
+    playground_title: graphql-gateway
+    playground_path: /playground
+{{ end }}
+
+cookies:
+    # lax, strict, none
+    same_site_mode: lax
+    hash_key: ${COOKIE_HASH_KEY:-{{ rand 32 }}}
+    block_key: ${SECRET_BLOCK_KEY:-{{ rand 32 }}}
+
+# serve static assets
+assets:
+    - external_path: /static/
+      internal_path: ../public/static
+    - external_path: /
+      internal_path: ../public/
+
+secret:
+    password_key: ${SECRET_PASSWORD_KEY:-{{ rand 32 }}}
+    token_key: ${SECRET_TOKEN_KEY:-{{ rand 32 }}}
+    hash_key: ${SECRET_HASH_KEY:-{{ rand 32 }}}
+    csrf_key: ${SECRET_CSRF_KEY:-{{ rand 32 }}}
+    jwt_key: ${SECRET_JWT_KEY:-{{ rand 32 }}}
+    session_key: ${SECRET_SESSION_KEY:-{{ rand 32 }}}

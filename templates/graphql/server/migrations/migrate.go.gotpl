@@ -1,0 +1,28 @@
+{{ reserveImport "database/sql"}}
+{{ reserveImport "github.com/fatih/color"}}
+{{ reserveImport "github.com/jackc/pgx/v4/stdlib" "_"}}
+{{ reserveImport ($.Import "config")}}
+{{ reserveImport "github.com/rubenv/sql-migrate" "migrate"}}
+
+func Migrate(cfg config.Migration) error {
+	migrations := &migrate.FileMigrationSource{
+		Dir: cfg.Dir,
+	}
+	db, err := sql.Open("pgx", cfg.DB)
+	if err != nil {
+		return err
+	}
+
+	n, err := migrate.Exec(db, "postgres", migrations, migrate.Up)
+	if err != nil {
+		return err
+	}
+
+	if n >= 1 {
+		color.Green("Applied %d migrations!\n", n)
+	} else {
+		color.Green("No migrations to apply\n")
+
+	}
+	return nil
+}

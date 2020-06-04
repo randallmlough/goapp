@@ -1,0 +1,147 @@
+{{ reserveImport "fmt"}}
+{{ reserveImport "net/http"}}
+
+type Config struct {
+	Env     string    `json:"env" yaml:"env"`
+	Debug   bool      `json:"debug" yaml:"debug"`
+	Logger  Logger    `json:"logger" yaml:"logger"`
+	DB      Database  `json:"database" yaml:"database"`
+	Migrate Migration `json:"migrate" yaml:"migrate"`
+	Server  Server    `json:"server" yaml:"server"`
+	JWT     JWT       `json:"jwt" yaml:"jwt"`
+	API     API       `json:"api" yaml:"api"`
+	Graphql Graphql   `json:"graphql" yaml:"graphql"`
+	Assets  []Asset   `json:"assets" yaml:"assets"`
+	Cookies Cookies   `json:"cookies" yaml:"cookies"`
+	Secret  Secret    `json:"secret" yaml:"secret"`
+}
+
+type Logger struct {
+	Enable          bool   `json:"enable" yaml:"enable"`
+	Version         string `json:"version" yaml:"version"`
+	EnableColor     bool   `json:"enable_color" yaml:"enable_color"`
+	StackTraceLevel string `json:"stack_trace_level" yaml:"stack_trace_level"`
+}
+
+type Database struct {
+	Port       string `json:"port" yaml:"port"`
+	Host       string `json:"host" yaml:"host"`
+	User       string `json:"user" yaml:"user"`
+	Name       string `json:"name" yaml:"name"`
+	Password   string `json:"password" yaml:"password"`
+	URI        string `json:"uri" yaml:"uri"`
+	Dialect    string `json:"dialect" yaml:"dialect"`
+	SSLMode    string `json:"ssl_mode" yaml:"ssl_mode"`
+	PSN        string `json:"psn" yaml:"psn"`
+	LogQueries bool   `json:"log_queries" yaml:"log_queries"`
+	Timeout    int    `json:"timeout_seconds" yaml:"timeout_seconds"`
+}
+
+type Migration struct {
+	Enable bool   `json:"enable" yaml:"enable"`
+	Dir    string `json:"dir" yaml:"dir"`
+	DB     string `json:"db" yaml:"db"`
+}
+
+type Server struct {
+	Port         string `json:"port" yaml:"port"`
+	ReadTimeout  int64  `json:"read_timeout_seconds" yaml:"read_timeout_seconds"`
+	WriteTimeout int64  `json:"write_timeout_seconds" yaml:"write_timeout_seconds"`
+	IdleTimeout  int64  `json:"idle_timeout" yaml:"idle_timeout"`
+}
+type Cookies struct {
+	SameSiteMode SameSite `json:"same_site_mode" yaml:"same_site_mode"`
+	HashKey      string   `json:"hash_key" yaml:"hash_key"`
+	BlockKey     string   `json:"block_key" yaml:"block_key"`
+}
+
+type SameSite int
+
+func (s *SameSite) UnmarshalJSON(bytes []byte) error {
+	if bytes == nil {
+		*s = SameSite(http.SameSiteNoneMode)
+	}
+	if err := s.decode(string(bytes)); err != nil {
+		return err
+	}
+	return nil
+}
+func (s *SameSite) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var sameSite *string
+	err := unmarshal(&sameSite)
+	if err != nil {
+		return err
+	}
+	if sameSite == nil {
+		*s = SameSite(http.SameSiteNoneMode)
+		return nil
+	}
+	if err := s.decode(*sameSite); err != nil {
+		return err
+	}
+	return nil
+}
+func (s *SameSite) decode(typ string) error {
+	switch {
+	case typ == "" || typ == "none":
+		*s = SameSite(http.SameSiteNoneMode)
+	case typ == "lax":
+		*s = SameSite(http.SameSiteLaxMode)
+	case typ == "strict":
+		*s = SameSite(http.SameSiteStrictMode)
+	default:
+		return fmt.Errorf("invalid SameSite choice. Use lax, strict, or none")
+	}
+	return nil
+}
+
+type Secret struct {
+	// never store this is a config file
+	// set this value from the environment after the config file has already been loaded
+	PasswordKey string `json:"password_key" yaml:"password_key"`
+	// never store this is a config file
+	// set this value from the environment after the config file has already been loaded
+	TokenKey string `json:"token_key" yaml:"token_key"`
+	// never store this is a config file
+	// set this value from the environment after the config file has already been loaded
+	HashKey string `json:"hash_key" yaml:"hash_key"`
+	// never store this is a config file
+	// set this value from the environment after the config file has already been loaded
+	CSRFKey string `json:"csrf_key" yaml:"csrf_key"`
+
+	JWTKey string `json:"jwt_key" yaml:"jwt_key"`
+
+	SessionKey string `json:"session_key" yaml:"session_key"`
+}
+
+// JWT holds data necessary for JWT configuration
+type JWT struct {
+	SigningAlgorithm string `json:"signing_algorithm" yaml:"signing_algorithm"`
+}
+
+type API struct {
+	Path    string `json:"path" yaml:"path"`
+	Version string `json:"version" yaml:"version"`
+}
+
+type Graphql struct {
+	Path            string `json:"path" yaml:"path"`
+	PlaygroundPath  string `json:"playground_path" yaml:"playground_path"`
+	PlaygroundTitle string `json:"playground_title" yaml:"playground_title"`
+}
+
+type Asset struct {
+	// ExternalPath - the relative path to access the asset. Can be a directory or file.
+	// use case: host static website or frontend application like React.
+	// Example:
+	// ExternalPath = "/some_file"
+	// The above file can be accessed at [YOUR_DOMAIN.COM]/some_file
+	ExternalPath string `json:"external_path" yaml:"external_path"`
+
+	// InternalPath - the relative path to access the asset internally
+	InternalPath string `json:"internal_path" yaml:"internal_path"`
+
+	// todo: implement AuthRequired
+	// just an interesting idea to come back to
+	AuthRequired bool `json:"auth_required" yaml:"auth_required"`
+}

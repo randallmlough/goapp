@@ -1,0 +1,8 @@
+/vendor
+.dockerignore
+.git
+.gitignore
+.prettierrc
+Dockerfile.prod
+.cache
+.env

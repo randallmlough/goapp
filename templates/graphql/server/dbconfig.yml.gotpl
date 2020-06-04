@@ -1,0 +1,11 @@
+development:
+  dialect: postgres
+  datasource: host=${DB_HOST} dbname=${DB_NAME} user=${DB_USER} password=${DB_PASSWORD}
+  dir: migration
+  table: migrations
+
+production:
+  dialect: postgres
+  datasource: host=${DB_HOST} dbname=${DB_NAME} user=${DB_USER} password=${DB_PASSWORD}
+  dir: migration
+  table: migrations

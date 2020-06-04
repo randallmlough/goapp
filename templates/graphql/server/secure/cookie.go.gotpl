@@ -1,0 +1,100 @@
+{{ reserveImport "github.com/gorilla/securecookie"}}
+{{ reserveImport ($.Import "errors")}}
+{{ reserveImport "net/http"}}
+{{ reserveImport "reflect"}}
+{{ reserveImport "time"}}
+
+
+var (
+	secCookie *securecookie.SecureCookie
+	stage     string
+)
+
+func NewSecureCookie(hashKey, blockKey []byte, env string) error {
+	if err := isValid(hashKey, true); err != nil {
+		return err
+	}
+	if err := isValid(blockKey, false); err != nil {
+		return err
+	}
+	stage = env
+	secCookie = securecookie.New(hashKey, blockKey)
+	return nil
+}
+
+func isValid(key []byte, required bool) error {
+	if key == nil && required == false {
+		return nil
+	}
+
+	switch {
+	case len(key) == 0:
+		return errors.New("key can not be empty")
+	case len(key) < 32:
+		return errors.New("key length is too short. Must be at least 32 characters")
+	default:
+		return nil
+	}
+}
+
+func EncodeCookie(cookieName string, value interface{}) (string, error) {
+	if secCookie == nil {
+		return "", errors.New("Secure cookie must be initialized before using")
+	}
+	encoded, err := secCookie.Encode(cookieName, value)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to encode cookie value")
+	}
+	return encoded, nil
+}
+func ReadSecureCookie(cookieName, cookieValue string, dst interface{}) error {
+	if secCookie == nil {
+		return errors.New("Secure cookie must be initialized before using")
+	}
+	switch v := dst.(type) {
+	case string, map[string]string, map[string]interface{}:
+		if err := secCookie.Decode(cookieName, cookieValue, &v); err != nil {
+			return errors.Wrap(err, "failed to decode cookie")
+		}
+	case *string, *map[string]string, *map[string]interface{}:
+		if err := secCookie.Decode(cookieName, cookieValue, v); err != nil {
+			return errors.Wrap(err, "failed to decode cookie")
+		}
+	default:
+		rv := reflect.ValueOf(dst)
+		if rv.Kind() != reflect.Ptr {
+			return errors.New("dst must be a pointer")
+		}
+		if rv.Kind() == reflect.Ptr {
+			if err := secCookie.Decode(cookieName, cookieValue, rv.Interface()); err != nil {
+				return errors.Wrap(err, "failed to decode cookie into dst")
+			}
+		}
+	}
+	return nil
+}
+
+func NewAuthCookie(value interface{}) (*http.Cookie, error) {
+	authCookieName := "session"
+	sec := true
+	sameSite := http.SameSiteLaxMode
+	if stage == "development" {
+		sec = false
+		sameSite = http.SameSiteNoneMode
+	}
+	encodedValue, err := EncodeCookie(authCookieName, value)
+	if err != nil {
+		return nil, err
+	}
+	cookie := &http.Cookie{
+		Name:     authCookieName,
+		Value:    encodedValue,
+		Path:     "/",
+		Expires:  time.Now().Add(24 * 7 * time.Hour),
+		Secure:   sec,
+		HttpOnly: true,
+		SameSite: sameSite,
+	}
+
+	return cookie, nil
+}

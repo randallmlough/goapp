@@ -1,0 +1,157 @@
+{{ reserveImport "context"  }}
+{{ reserveImport "flag"  }}
+{{ reserveImport "fmt"  }}
+{{ reserveImport "time"  }}
+{{ reserveImport "strings"  }}
+{{ reserveImport "net/http"  }}
+
+{{ reserveImport "github.com/fatih/color"}}
+{{ reserveImport "github.com/go-chi/chi"}}
+{{ reserveImport ($.Import "app/auth")}}
+{{ reserveImport ($.Import "app/invoice")}}
+{{ reserveImport ($.Import "app/item")}}
+{{ reserveImport ($.Import "app/user")}}
+{{ reserveImport ($.Import "config")}}
+{{ reserveImport ($.Import "db/pg")}}
+{{ reserveImport ($.Import "graph")}}
+{{ reserveImport ($.Import "log")}}
+{{ reserveImport ($.Import "middleware")}}
+{{ reserveImport ($.Import "migrations")}}
+{{ reserveImport ($.Import "secure")}}
+{{ reserveImport ($.Import "server")}}
+
+func lineSeparator() {
+	fmt.Println("========")
+}
+
+func startMessage(port string) {
+	lineSeparator()
+	color.Green("Listening on localhost%s\n", port)
+	{{- if (($.Template.Package "server").HasModule "graphql" )}}
+	color.Green("Visit `http://localhost%s/graphql` in your browser\n", port)
+	{{ end }}
+	lineSeparator()
+}
+
+func main() {
+	cfg := flag.String("config", "config.yml", "Path to config file")
+	flag.Parse()
+	// load config file
+	c, err := config.LoadConfig(*cfg)
+	if err != nil {
+		panic(err)
+	}
+
+	// instantiate logger
+	logger, err := log.New(c.Logger.Version, c.Logger.EnableColor, c.Logger.StackTraceLevel)
+	if err != nil {
+		panic(err)
+	}
+	defer logger.Sync()
+
+	// db setup
+	conn, err := pg.New(context.Background(), c.DB.URI, logger)
+	if err != nil {
+		logger.Fatal("failed to initialize db", log.Error(err))
+		return
+	}
+
+	if c.Migrate.Enable {
+		if err := migration.Migrate(c.Migrate); err != nil {
+			logger.Fatal("failed to migrate db", log.Error(err))
+			return
+		}
+	}
+
+	// secure services
+	jwt, err := secure.NewJWTService(c.Secret.JWTKey, c.JWT.SigningAlgorithm)
+	if err != nil {
+		logger.Fatal("failed to initialize jwt service", log.Error(err))
+		return
+	}
+	pw := secure.NewPasswordService(c.Secret.PasswordKey)
+	if err := secure.NewSecureCookie([]byte(c.Cookies.HashKey), []byte(c.Cookies.BlockKey), c.Env); err != nil {
+		logger.Fatal("failed to initialize secured cookie service", log.Error(err))
+		return
+	}
+
+	// repositories
+	ur := repository.NewUserRepository(conn)
+	ir := repository.NewInvoiceRepository(conn)
+	iir := repository.NewItem(conn)
+
+	// domain specific services
+	us := user.NewUserService(ur, pw)
+	as := auth.NewAuthService(us, pw, jwt)
+	is := invoice.NewInvoiceService(ir)
+	iis := item.NewItemService(iir)
+
+	{{- if (($.Template.Package "server").HasModule "graphql" )}}
+	// graphql instance and server
+	gql, err := graph.New(
+		resolver.New(conn,
+			resolver.Logger(logger),
+			resolver.Jwt(jwt),
+			resolver.User(us),
+			resolver.Invoice(is),
+			resolver.Item(iis),
+		),
+		graph.WithDirectives(generated.DirectiveRoot{
+			UserRequired: directive.UserRequired,
+			Validate:     directive.Validate,
+		}),
+	)
+
+	if err != nil {
+		logger.Fatal("failed to initialize graphql", log.Error(err))
+		return
+	}
+
+
+	gqlServer := gql.Server(
+		graph.WithDataloaders(dataloader.NewMiddleware(conn, dataloader.User, dataloader.Invoice)...),
+		graph.WithErrorHandler(graph.ErrorHandler(logger)),
+	)
+	{{ end }}
+
+	r := chi.NewRouter()
+	r.Use(middleware.BaseMiddleware...)
+	if c.Env != "development" {
+		r.Use(csrf.Protect([]byte(c.Secret.CSRFKey),
+			csrf.Secure(true),
+			csrf.SameSite(csrf.SameSiteMode(c.Cookies.SameSiteMode)),
+		))
+	}
+
+	r.Use(middleware.SecureHeaders)
+	r.Use(middleware.Auth(us, jwt))
+	apiPath := c.API.Path + c.API.Version
+	r.Route(apiPath, func(r chi.Router) {
+		{{- if (($.Template.Package "server").HasModule "graphql" )}}
+		r.Mount("/graphql", gqlServer.Handler())
+		{{ end }}
+		{{- if (($.Template.Package "server").HasModule "REST" )}}
+		r.Mount("/auth", auth.NewAuthHandler(as, logger).Handler())
+		{{ end }}
+		r.Get("/ping", server.Ping)
+	})
+	for _, asset := range c.Assets {
+		server.FileServer(r, asset.ExternalPath, http.Dir(asset.InternalPath))
+	}
+
+	port := c.Server.Port
+	if !strings.HasPrefix(port, ":") {
+		port = ":" + c.Server.Port
+	}
+	s := server.New(server.WithLogger(logger), server.ServerConfig(&http.Server{
+		Addr:         port,
+		ReadTimeout:  time.Duration(c.Server.ReadTimeout) * time.Second,
+		WriteTimeout: time.Duration(c.Server.WriteTimeout) * time.Second,
+		IdleTimeout:  time.Duration(c.Server.IdleTimeout) * time.Second,
+		ErrorLog:     logger.StdLogger(),
+		Handler:      r,
+	}))
+
+	startMessage(port)
+	s.Start()
+}

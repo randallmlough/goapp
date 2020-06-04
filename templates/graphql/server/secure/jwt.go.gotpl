@@ -1,0 +1,119 @@
+{{ reserveImport "github.com/dgrijalva/jwt-go"}}
+{{ reserveImport "github.com/pkg/errors"}}
+{{ reserveImport "strings"}}
+{{ reserveImport "time"}}
+
+var (
+	// ErrTokenExpired is returned when the jwt token has expired
+	ErrTokenExpired jwtError = "token expired"
+)
+
+type jwtError string
+
+func (e jwtError) Error() string {
+	return string(e)
+}
+
+type JWTService interface {
+	GenerateToken(scope map[string]interface{}, expireAt time.Time) (token string, expires string, err error)
+	ValidateToken(token string) (*JWT, error)
+}
+
+// HS256
+// NewJWTService generates new JWT service necessary for auth middleware
+func NewJWTService(secret, algo string) (JWTService, error) {
+	signingMethod := jwt.GetSigningMethod(algo)
+	if signingMethod == nil {
+		return nil, errors.New("invalid jwt signing algo method")
+	}
+	return &jwtService{
+		key:  []byte(secret),
+		algo: signingMethod,
+	}, nil
+}
+
+// JWT provides a Json-Web-JWT authentication implementation
+type jwtService struct {
+	// Secret key used for signing.
+	key []byte
+
+	// JWT signing algorithm
+	algo jwt.SigningMethod
+}
+
+// GenerateToken generates new JWT token and populates it with user data
+func (j *jwtService) GenerateToken(scope map[string]interface{}, expireAt time.Time) (token string, expires string, err error) {
+	claims := make(jwt.MapClaims)
+	for key, value := range scope {
+		claims[key] = value
+	}
+	claims["exp"] = expireAt.Unix()
+	t := jwt.NewWithClaims((j.algo), claims)
+
+	tokenString, err := t.SignedString(j.key)
+	if err != nil {
+		err = errors.Wrap(err, "failed to create signed token")
+	}
+	return tokenString, expireAt.Format(time.RFC3339), err
+}
+
+// ParseToken parses token from Authorization header
+func (j *jwtService) parseToken(token string) (*jwt.Token, error) {
+	t, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
+		if j.algo != token.Method {
+			return nil, errors.New("malformed auth token")
+		}
+		return j.key, nil
+	})
+	if err != nil {
+		switch strings.ToLower(err.Error()) {
+		case "token is expired":
+			return nil, ErrTokenExpired
+		default:
+			return nil, errors.Wrap(err, "failed to parse jwt token")
+		}
+	}
+	return t, nil
+}
+func (j *jwtService) ValidateToken(rawToken string) (*JWT, error) {
+	token, err := j.parseToken(rawToken)
+	if err != nil {
+		return nil, err
+	}
+	jwt, err := toToken(token)
+	if err != nil {
+		return nil, err
+	}
+	return jwt, nil
+}
+
+type JWT struct {
+	Raw string // The raw token.  Populated when you Parse a token
+	//Method    SigningMethod          // The signing method used or to be used
+	Header    map[string]interface{} // The first segment of the token
+	Claims    map[string]interface{} // The second segment of the token
+	Signature string                 // The third segment of the token.  Populated when you Parse a token
+	Valid     bool                   // Is the token valid?  Populated when you Parse/Verify a token
+}
+
+func toToken(jwt *jwt.Token) (*JWT, error) {
+	var err error
+
+	token := &JWT{
+		Raw:       jwt.Raw,
+		Header:    jwt.Header,
+		Signature: jwt.Signature,
+		Valid:     jwt.Valid,
+	}
+	token.Claims, err = claimsMap(jwt)
+	if err != nil {
+		return nil, err
+	}
+	return token, err
+}
+func claimsMap(token *jwt.Token) (map[string]interface{}, error) {
+	if c, ok := token.Claims.(jwt.MapClaims); ok {
+		return c, nil
+	}
+	return nil, errors.New("invalid type")
+}

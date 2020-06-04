@@ -1,0 +1,122 @@
+{{ reserveImport "context"}}
+{{ reserveImport "errors"}}
+{{ reserveImport ($.Import "log") "logger"}}
+{{ reserveImport "log"}}
+{{ reserveImport "net/http"}}
+{{ reserveImport "os"}}
+{{ reserveImport "os/signal"}}
+{{ reserveImport "strings"}}
+{{ reserveImport "time"}}
+
+type Server struct {
+	log *logger.Logger
+	*http.Server
+}
+
+func New(opts ...ServerOptions) *Server {
+	s := &Server{
+		Server: defaultServer,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	if s.log != nil {
+		DefaultResponder(s.log)
+	}
+	return s
+}
+
+type ServerOptions func(s *Server)
+
+var defaultServer = &http.Server{
+	Addr:         ":8080",
+	ReadTimeout:  5 * time.Second,
+	WriteTimeout: 10 * time.Second,
+	IdleTimeout:  15 * time.Second,
+}
+
+func ServerConfig(server *http.Server) ServerOptions {
+	return func(s *Server) {
+		s.Server = server
+	}
+}
+func WithHandler(h http.Handler) ServerOptions {
+	return func(s *Server) {
+		s.Server.Handler = h
+	}
+}
+func WithPort(port string) ServerOptions {
+	if !strings.HasPrefix(port, ":") {
+		port = ":" + port
+	}
+	return func(s *Server) {
+		s.Server.Addr = port
+	}
+}
+func WithErrorLog(l *log.Logger) ServerOptions {
+	return func(s *Server) {
+		s.Server.ErrorLog = l
+	}
+}
+func WithLogger(l *logger.Logger) ServerOptions {
+	return func(s *Server) {
+		s.log = l
+	}
+}
+
+// Start starts the http server
+func (s *Server) Start() {
+	s.log.Info("Starting server...")
+
+	go func() {
+		if err := s.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			s.log.Fatal("failed to start server", logger.Error(err))
+		}
+	}()
+	s.log.Info("server is ready to handle requests", logger.String("address", s.Addr))
+	s.GracefulShutdown()
+}
+
+// StartTLS starts the https server
+func (s *Server) StartTLS(cf, kf string) error {
+	go func() {
+		s.log.Info("starting server", logger.String("address", s.Addr))
+		if err := s.ListenAndServeTLS(cf, kf); err != nil {
+			s.log.Fatal("failed to start server", logger.Error(err))
+		}
+	}()
+	// Setting up signal capturing
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+
+	// Waiting for SIGINT (pkill -2)
+	<-stop
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.Shutdown(ctx); err != nil {
+		return errors.New("error stopping server")
+	}
+
+	s.log.Info("gracefully stopped server")
+	return nil
+}
+
+func (s *Server) GracefulShutdown() {
+	quit := make(chan os.Signal, 1)
+
+	signal.Notify(quit, os.Interrupt)
+	sig := <-quit
+	s.log.Info("server is shutting down", logger.String("reason", sig.String()))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	s.SetKeepAlivesEnabled(false)
+	if err := s.Shutdown(ctx); err != nil {
+		s.log.Fatal("Could not gracefully shutdown the server", logger.Error(err))
+	}
+	s.log.Info("server stopped")
+}

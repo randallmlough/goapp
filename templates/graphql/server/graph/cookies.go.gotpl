@@ -1,0 +1,21 @@
+{{ reserveImport "context"}}
+{{ reserveImport "net/http"}}
+
+func SetCookie(ctx context.Context, cookie *http.Cookie) {
+	if wrapper := getHttpWrapper(ctx); wrapper != nil {
+		http.SetCookie(*wrapper.W, cookie)
+	}
+}
+func DeleteCookie(ctx context.Context, cookieName string) error {
+	if wrapper := getHttpWrapper(ctx); wrapper != nil {
+		http.SetCookie(*wrapper.W, &http.Cookie{
+			Name:     cookieName,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+		})
+		return nil
+	}
+	return errors.New("no http context")
+}

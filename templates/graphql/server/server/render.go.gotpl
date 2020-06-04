@@ -1,0 +1,55 @@
+{{ reserveImport "github.com/go-chi/render"}}
+{{ reserveImport "github.com/gorilla/csrf"}}
+{{ reserveImport ($.Import "errors")}}
+{{ reserveImport ($.Import "log")}}
+{{ reserveImport "go.uber.org/zap"}}
+{{ reserveImport "net/http"}}
+
+func Status(r *http.Request, statusCode int) {
+	render.Status(r, statusCode)
+}
+
+func Render(w http.ResponseWriter, r *http.Request, statusCode int, v ...render.Renderer) {
+	if token := csrf.Token(r); token != "" {
+		w.Header().Set("X-CSRF-Token", token)
+	}
+	render.Status(r, statusCode)
+	switch len(v) {
+	case 0:
+		render.NoContent(w, r)
+	case 1:
+		if err := render.Render(w, r, v[0]); err != nil {
+			http.Error(w, "something went wrong", http.StatusInternalServerError)
+		}
+	default:
+		if err := render.RenderList(w, r, v); err != nil {
+			http.Error(w, "something went wrong", http.StatusInternalServerError)
+		}
+	}
+}
+
+func DefaultResponder(logger *log.Logger) {
+	logger = logger.AddCallerSkip(4)
+	render.Respond = func(w http.ResponseWriter, r *http.Request, v interface{}) {
+		if err, ok := v.(error); ok {
+			if el, ok := err.(errors.Loggable); ok {
+				el.Log(logger)
+			} else {
+				// We set a default error status response code if one hasn't been set.
+				if _, ok := r.Context().Value(render.StatusCtxKey).(int); !ok {
+					w.WriteHeader(500)
+				}
+
+				// We log the error
+				logger.Error("unknown error occurred", zap.Error(err))
+				// We change the response to not reveal the actual error message,
+				// instead we can transform the message something more friendly or mapped
+				// to some code / language, etc.
+				render.DefaultResponder(w, r, map[string]interface{}{"error": "an error occurred"})
+				return
+			}
+		}
+
+		render.DefaultResponder(w, r, v)
+	}
+}
